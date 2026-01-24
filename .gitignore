@@ -1,0 +1,11 @@
+.venv
+.DS_Store
+temp*
+*.pyc
+build/
+dist/
+*.egg-info
+__pycache__
+_version.py
+.pytest_cache
+docsrc/_doctrees
