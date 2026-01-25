@@ -1,5 +1,31 @@
+[project]
+name = "internal-certificate-manager"
+version = "0.1.0"
+description = "Self-signed SSL certificate manager for internal devices"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42.0.0",
+    "prompt-toolkit>=3.0.43",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-pretty>=1.2.0",
+    "pytest-cov>=4.1.0",
+]
+
 [tool.pytest.ini_options]
-    pythonpath = "."
-    addopts = [
-        "--import-mode=importlib",
-    ]
+pythonpath = "."
+addopts = [
+    "--import-mode=importlib",
+    "--cov=cert_manager",
+    "--cov-report=term-missing",
+    "--cov-fail-under=90",
+]
+
+[tool.coverage.run]
+omit = [
+    "cert_manager/cli.py",  # CLI will be tested manually/interactively
+    "cert_manager/gui.py",  # GUI will be tested manually/interactively
+]

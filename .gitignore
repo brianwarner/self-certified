@@ -9,3 +9,10 @@ __pycache__
 _version.py
 .pytest_cache
 docsrc/_doctrees
+
+# Certificate storage directory
+cert_storage/
+*.db
+*.key
+*.crt
+*.pem
