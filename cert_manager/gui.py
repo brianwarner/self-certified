@@ -942,6 +942,7 @@ class ImportCADialog(tk.Toplevel):
                 common_name=common_name,
                 organization=organization,
                 country=country,
+                created_at=cert.not_valid_before_utc,
             )
 
             messagebox.showinfo(

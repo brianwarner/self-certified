@@ -318,6 +318,7 @@ class CertManagerCLI:
                 common_name=common_name,
                 organization=organization,
                 country=country,
+                created_at=cert.not_valid_before,
             )
 
             # Create client package

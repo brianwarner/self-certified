@@ -122,6 +122,7 @@ class CertificateStorage:
         common_name: str,
         organization: Optional[str] = None,
         country: Optional[str] = None,
+        created_at: Optional[datetime] = None,
     ) -> int:
         """Add a CA certificate record with encrypted cert/key data.
 
@@ -133,10 +134,14 @@ class CertificateStorage:
             common_name: Certificate common name
             organization: Optional organization
             country: Optional country code
+            created_at: Optional creation date (defaults to now if not provided)
 
         Returns:
             The ID of the newly created record
         """
+        if created_at is None:
+            created_at = datetime.now()
+
         with self._get_connection() as conn:
             cursor = conn.execute(
                 """
@@ -149,7 +154,7 @@ class CertificateStorage:
                     name,
                     self._encrypt(cert_data.decode("utf-8")),
                     self._encrypt(key_data.decode("utf-8")),
-                    datetime.now().isoformat(),
+                    created_at.isoformat(),
                     valid_until.isoformat(),
                     common_name,
                     organization,
