@@ -1,6 +1,6 @@
 cryptography>=42.0.0
 prompt-toolkit>=3.0.43
-Pillow>=10.0.0
+Pillow>=12.2.0
 pytest>=8.0.0
 pytest-pretty>=1.2.0
 pytest-cov>=4.1.0
