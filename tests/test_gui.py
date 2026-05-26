@@ -5,6 +5,7 @@ import tkinter as tk
 from unittest.mock import Mock, patch
 from cert_manager.gui import (
     CertificateManagerGUI,
+    CreatePasswordDialog,
     PasswordDialog,
     SelectItemDialog,
     CreateCADialog,
@@ -37,6 +38,37 @@ def test_password_dialog_empty(root):
         dialog = PasswordDialog(root, "Test Password")
         dialog.apply()
         assert dialog.result == ""
+
+
+def test_create_password_dialog_success(root):
+    """Test CreatePasswordDialog with matching passwords."""
+    with patch.object(CreatePasswordDialog, "wait_window"):
+        dialog = CreatePasswordDialog(root)
+        dialog.password_entry.insert(0, "secret123")
+        dialog.confirm_entry.insert(0, "secret123")
+        assert dialog.validate() is True
+        dialog.apply()
+        assert dialog.result == "secret123"
+
+
+def test_create_password_dialog_mismatch(root):
+    """Test CreatePasswordDialog with mismatched passwords."""
+    with patch.object(CreatePasswordDialog, "wait_window"):
+        with patch("cert_manager.gui.messagebox") as mock_msgbox:
+            dialog = CreatePasswordDialog(root)
+            dialog.password_entry.insert(0, "secret123")
+            dialog.confirm_entry.insert(0, "different")
+            assert dialog.validate() is False
+            mock_msgbox.showerror.assert_called_once()
+
+
+def test_create_password_dialog_empty(root):
+    """Test CreatePasswordDialog with empty password."""
+    with patch.object(CreatePasswordDialog, "wait_window"):
+        with patch("cert_manager.gui.messagebox") as mock_msgbox:
+            dialog = CreatePasswordDialog(root)
+            assert dialog.validate() is False
+            mock_msgbox.showerror.assert_called_once()
 
 
 def test_select_item_dialog_basic(root):

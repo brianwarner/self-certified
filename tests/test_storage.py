@@ -331,11 +331,9 @@ def test_encrypted_database():
             common_name="Test CA",
         )
 
-        # Try to open with different password - should fail when reading data
-        storage2 = CertificateStorage(db_path, "wrong_password")
-        with pytest.raises(Exception):
-            # This should fail because decryption will fail
-            storage2.get_ca("test_ca")
+        # Try to open with different password - should fail at initialization
+        with pytest.raises(ValueError, match="Incorrect password"):
+            CertificateStorage(db_path, "wrong_password")
 
         # Open with correct password - should work
         storage3 = CertificateStorage(db_path, "secret_password")

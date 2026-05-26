@@ -9,6 +9,9 @@ import base64
 import hashlib
 from cryptography.fernet import Fernet
 
+_SENTINEL_KEY = "__password_verify__"
+_SENTINEL_VALUE = "self-certified-valid"
+
 
 class CertificateStorage:
     """Manages encrypted storage of certificate metadata."""
@@ -21,20 +24,42 @@ class CertificateStorage:
             encryption_key: Encryption key for securing the database
         """
         self.db_path = db_path
+        is_new_db = not db_path.exists()
         # Derive a Fernet key from the password
         key_bytes = hashlib.sha256(encryption_key.encode()).digest()
         self.fernet = Fernet(base64.urlsafe_b64encode(key_bytes))
         self._init_db()
-        # Verify encryption works by trying to read
-        self._verify_encryption()
+        self._verify_encryption(is_new_db)
 
-    def _verify_encryption(self) -> None:
-        """Verify database encryption by attempting to read."""
-        try:
+    def _verify_encryption(self, is_new_db: bool) -> None:
+        """Verify the password is correct using an encrypted sentinel value.
+
+        On a new database, stores the encrypted sentinel.
+        On an existing database, decrypts the sentinel to confirm the password.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (_SENTINEL_KEY,)
+            ).fetchone()
+
+        if row is None:
+            # New database or upgraded DB without sentinel — store it now
+            encrypted = self._encrypt(_SENTINEL_VALUE)
             with self._get_connection() as conn:
-                conn.execute("SELECT COUNT(*) FROM ca_certificates").fetchone()
-        except Exception as e:
-            raise ValueError("Failed to access database - incorrect password?") from e
+                conn.execute(
+                    "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                    (_SENTINEL_KEY, encrypted),
+                )
+        else:
+            # Existing database — verify the password by decrypting the sentinel
+            try:
+                decrypted = self._decrypt(row["value"])
+                if decrypted != _SENTINEL_VALUE:
+                    raise ValueError("Incorrect password")
+            except ValueError:
+                raise
+            except Exception as e:
+                raise ValueError("Incorrect password") from e
 
     @contextmanager
     def _get_connection(self):
@@ -65,8 +90,7 @@ class CertificateStorage:
     def _init_db(self) -> None:
         """Initialize database schema."""
         with self._get_connection() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS ca_certificates (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
@@ -80,8 +104,7 @@ class CertificateStorage:
                     organization TEXT,
                     country TEXT
                 )
-            """
-            )
+            """)
 
             # Migrate existing table if needed
             try:
@@ -93,8 +116,7 @@ class CertificateStorage:
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS certificates (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
@@ -110,8 +132,14 @@ class CertificateStorage:
                     country TEXT,
                     FOREIGN KEY (ca_id) REFERENCES ca_certificates(id)
                 )
-            """
-            )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL
+                )
+            """)
 
     def add_ca(
         self,
@@ -267,14 +295,12 @@ class CertificateStorage:
     def list_certificates(self) -> List[Dict[str, Any]]:
         """List all certificates."""
         with self._get_connection() as conn:
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT c.*, ca.name as ca_name
                 FROM certificates c
                 LEFT JOIN ca_certificates ca ON c.ca_id = ca.id
                 ORDER BY c.created_at DESC
-                """
-            ).fetchall()
+                """).fetchall()
             certs = []
             for row in rows:
                 cert = dict(row)

@@ -137,6 +137,9 @@ class CertificateManagerGUI:
         ttk.Button(
             toolbar, text="Export Client Package", command=self._export_client_package
         ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Details", command=self._show_ca_details).pack(
+            side=tk.LEFT, padx=2
+        )
         ttk.Button(toolbar, text="Forget Root", command=self._forget_ca).pack(
             side=tk.LEFT, padx=2
         )
@@ -156,6 +159,7 @@ class CertificateManagerGUI:
             columns=("Common Name", "Created", "Valid Until"),
             show="tree headings",
             yscrollcommand=scrollbar.set,
+            selectmode="browse",
         )
         self.ca_tree.pack(fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.ca_tree.yview)
@@ -182,6 +186,9 @@ class CertificateManagerGUI:
         ttk.Button(
             toolbar, text="Export Certificate", command=self._export_certificate
         ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Details", command=self._show_cert_details).pack(
+            side=tk.LEFT, padx=2
+        )
         ttk.Button(
             toolbar, text="Forget Certificate", command=self._forget_certificate
         ).pack(side=tk.LEFT, padx=2)
@@ -201,6 +208,7 @@ class CertificateManagerGUI:
             columns=("Common Name", "CA", "Created", "Valid Until"),
             show="tree headings",
             yscrollcommand=scrollbar.set,
+            selectmode="browse",
         )
         self.cert_tree.pack(fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.cert_tree.yview)
@@ -219,45 +227,44 @@ class CertificateManagerGUI:
 
     def _init_storage(self):
         """Initialize storage with password."""
-        max_attempts = 3
-        attempt = 0
+        import sys
 
-        while attempt < max_attempts:
+        is_new_db = not self.config.metadata_db.exists()
+
+        if is_new_db:
+            dialog = CreatePasswordDialog(self.root)
+            password = dialog.result
+            if not password:
+                messagebox.showerror(
+                    "Error", "Password is required to create the database."
+                )
+                self.root.destroy()
+                sys.exit(1)
+                return
+        else:
             dialog = PasswordDialog(self.root, "Enter database password:")
             password = dialog.result
-
             if not password:
-                messagebox.showerror("Error", "Password is required")
+                messagebox.showerror("Error", "Password is required.")
                 self.root.destroy()
-                import sys
-
                 sys.exit(1)
                 return
 
-            try:
-                self.storage = CertificateStorage(self.config.metadata_db, password)
-                self._refresh_ca_list()
-                self._refresh_cert_list()
-                return  # Success!
-            except Exception as e:
-                attempt += 1
-                remaining = max_attempts - attempt
-
-                if remaining > 0:
-                    messagebox.showerror(
-                        "Error",
-                        f"Failed to initialize storage: {e}\n\n"
-                        f"Attempts remaining: {remaining}",
-                    )
-                else:
-                    messagebox.showerror(
-                        "Error",
-                        f"Failed to initialize storage after {max_attempts} attempts.\n\n{e}",
-                    )
-                    self.root.destroy()
-                    import sys
-
-                    sys.exit(1)
+        try:
+            self.storage = CertificateStorage(self.config.metadata_db, password)
+            self._refresh_ca_list()
+            self._refresh_cert_list()
+        except ValueError:
+            messagebox.showerror(
+                "Incorrect Password",
+                "The password you entered is incorrect.",
+            )
+            self.root.destroy()
+            sys.exit(1)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to initialize storage: {e}")
+            self.root.destroy()
+            sys.exit(1)
 
     def _refresh_ca_list(self):
         """Refresh CA certificate list."""
@@ -617,6 +624,60 @@ class CertificateManagerGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to forget certificate: {e}")
 
+    def _show_ca_details(self):
+        """Show details for the selected root certificate."""
+        selected = self.ca_tree.selection()
+        if not selected:
+            messagebox.showinfo("Info", "Please select a root certificate")
+            return
+
+        name = self.ca_tree.item(selected[0])["text"]
+        cas = self.storage.list_cas()
+        ca = next((c for c in cas if c["name"] == name), None)
+        if not ca:
+            messagebox.showerror("Error", "Could not load certificate details")
+            return
+
+        fields = [
+            ("Name", ca["name"]),
+            ("Common Name", ca["common_name"]),
+            ("Organization", ca.get("organization") or "\u2014"),
+            ("Country Code", ca.get("country") or "\u2014"),
+            ("Created", self._format_datetime(ca["created_at"])),
+            ("Valid Until", self._format_datetime(ca["valid_until"])),
+        ]
+        CertDetailsDialog(self.root, f"Root Certificate: {name}", fields)
+
+    def _show_cert_details(self):
+        """Show details for the selected certificate."""
+        selected = self.cert_tree.selection()
+        if not selected:
+            messagebox.showinfo("Info", "Please select a certificate")
+            return
+
+        name = self.cert_tree.item(selected[0])["text"]
+        certs = self.storage.list_certificates()
+        cert = next((c for c in certs if c["name"] == name), None)
+        if not cert:
+            messagebox.showerror("Error", "Could not load certificate details")
+            return
+
+        san_dns = ", ".join(cert["san_dns"]) if cert["san_dns"] else "\u2014"
+        san_ip = ", ".join(cert["san_ip"]) if cert["san_ip"] else "\u2014"
+
+        fields = [
+            ("Name", cert["name"]),
+            ("Common Name", cert["common_name"]),
+            ("Organization", cert.get("organization") or "\u2014"),
+            ("Country Code", cert.get("country") or "\u2014"),
+            ("Signed By", cert.get("ca_name") or "\u2014"),
+            ("Created", self._format_datetime(cert["created_at"])),
+            ("Valid Until", self._format_datetime(cert["valid_until"])),
+            ("SAN DNS Names", san_dns),
+            ("SAN IP Addresses", san_ip),
+        ]
+        CertDetailsDialog(self.root, f"Certificate: {name}", fields)
+
     def _show_about(self):
         """Show about dialog."""
         messagebox.showinfo(
@@ -629,6 +690,53 @@ class CertificateManagerGUI:
     def run(self):
         """Start the GUI application."""
         self.root.mainloop()
+
+
+class CreatePasswordDialog(simpledialog.Dialog):
+    """Dialog for creating a new database password (first run)."""
+
+    def __init__(self, parent):
+        self.result = None
+        super().__init__(parent, "Create Database Password")
+
+    def body(self, master):
+        ttk.Label(
+            master,
+            text="You are creating a new certificate database.",
+            font=("TkDefaultFont", 10, "bold"),
+        ).grid(row=0, column=0, columnspan=2, pady=(5, 10), padx=5)
+        ttk.Label(
+            master,
+            text="This password encrypts your private keys and certificate data.",
+        ).grid(row=1, column=0, columnspan=2, pady=(0, 10), padx=5)
+        ttk.Label(master, text="Password:").grid(
+            row=2, column=0, sticky=tk.W, padx=5, pady=5
+        )
+        self.password_entry = ttk.Entry(master, show="*", width=30)
+        self.password_entry.grid(row=2, column=1, padx=5, pady=5)
+
+        ttk.Label(master, text="Confirm password:").grid(
+            row=3, column=0, sticky=tk.W, padx=5, pady=5
+        )
+        self.confirm_entry = ttk.Entry(master, show="*", width=30)
+        self.confirm_entry.grid(row=3, column=1, padx=5, pady=5)
+
+        return self.password_entry
+
+    def validate(self):
+        password = self.password_entry.get()
+        confirm = self.confirm_entry.get()
+        if not password:
+            messagebox.showerror("Error", "Password cannot be empty.", parent=self)
+            return False
+        if password != confirm:
+            messagebox.showerror("Error", "Passwords do not match.", parent=self)
+            self.confirm_entry.delete(0, tk.END)
+            return False
+        return True
+
+    def apply(self):
+        self.result = self.password_entry.get()
 
 
 class PasswordDialog(simpledialog.Dialog):
@@ -1307,6 +1415,40 @@ class ProgressDialog(tk.Toplevel):
                 self.master.destroy()
         else:
             messagebox.showerror("Error", f"Operation failed: {message}")
+
+
+class CertDetailsDialog(tk.Toplevel):
+    """Dialog for displaying certificate details."""
+
+    def __init__(self, parent, title: str, fields: list):
+        super().__init__(parent)
+        self.title(title)
+        self.resizable(False, False)
+
+        frame = ttk.Frame(self, padding=15)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        for i, (label, value) in enumerate(fields):
+            ttk.Label(frame, text=f"{label}:", font=("TkDefaultFont", 10, "bold")).grid(
+                row=i, column=0, sticky=tk.W, padx=(0, 15), pady=4
+            )
+            ttk.Label(frame, text=str(value), wraplength=400).grid(
+                row=i, column=1, sticky=tk.W, pady=4
+            )
+
+        ttk.Button(frame, text="OK", command=self.destroy, width=10).grid(
+            row=len(fields), column=0, columnspan=2, pady=(15, 0)
+        )
+
+        self.transient(parent)
+        self.grab_set()
+
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (self.winfo_width() // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (self.winfo_height() // 2)
+        self.geometry(f"+{x}+{y}")
+
+        self.wait_window()
 
 
 def main():
